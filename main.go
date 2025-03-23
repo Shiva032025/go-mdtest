@@ -10,26 +10,12 @@ import (
 )
 
 var lastPairTime time.Time
+var clients = make(map[string]*whatsmeow.Client) // Map to store clients for each phone number
 
 func main() {
     db, err := sqlstore.New("sqlite3", "file:mdtest.db?_foreign_keys=on", nil)
     if err != nil {
         panic(err)
-    }
-    deviceStore, err := db.GetFirstDevice()
-    if err != nil {
-        panic(err)
-    }
-    client := whatsmeow.NewClient(deviceStore, nil)
-
-    // Event logging for debugging
-    client.AddEventHandler(func(evt interface{}) {
-        fmt.Printf("Event: %v\n", evt)
-    })
-
-    err = client.Connect()
-    if err != nil {
-        fmt.Printf("Failed to connect: %v\n", err)
     }
 
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -38,6 +24,31 @@ func main() {
             fmt.Fprintf(w, "Phone number daal: /?phone=918516847084")
             return
         }
+
+        // Check if client for this phone number already exists
+        client, exists := clients[phoneNumber]
+        if !exists {
+            // Create new device store for this phone number
+            deviceStore, err := db.GetFirstDevice()
+            if err != nil {
+                fmt.Fprintf(w, "Error creating device store: %v", err)
+                return
+            }
+            client = whatsmeow.NewClient(deviceStore, nil)
+            clients[phoneNumber] = client
+
+            // Event logging
+            client.AddEventHandler(func(evt interface{}) {
+                fmt.Printf("Event for %s: %v\n", phoneNumber, evt)
+            })
+
+            err = client.Connect()
+            if err != nil {
+                fmt.Fprintf(w, "Error connecting: %v", err)
+                return
+            }
+        }
+
         if client.Store.ID == nil {
             if time.Since(lastPairTime) < 5*time.Minute {
                 fmt.Fprintf(w, "Please wait 5 minutes before generating a new pair code")
@@ -49,7 +60,7 @@ func main() {
                     fmt.Fprintf(w, "Error connecting: %v", err)
                     return
                 }
-                time.Sleep(2 * time.Second) // Mimic human delay
+                time.Sleep(2 * time.Second)
             }
             pairCode, err := client.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Windows)")
             if err != nil {
