@@ -19,7 +19,8 @@ func main() {
     // Use in-memory database to avoid file system issues on Render
     db, err := sqlstore.New("sqlite3", ":memory:", nil)
     if err != nil {
-        panic(err)
+        fmt.Printf("Error initializing database: %v\n", err)
+        return
     }
 
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -35,9 +36,14 @@ func main() {
             // Create a new device for this phone number
             deviceStore := &store.Device{}
             // Use whatsmeow's built-in logger
-            deviceStore.Log = waLog.Stdout("Device", "INFO", true)
+            deviceStore.Log = waLog.Stdout("Device", "DEBUG", true)
 
             client = whatsmeow.NewClient(deviceStore, nil)
+            if client == nil {
+                fmt.Fprintf(w, "Error creating WhatsApp client")
+                return
+            }
+            fmt.Printf("Created client for %s: %v\n", phoneNumber, client)
             clients[phoneNumber] = client
             devices[phoneNumber] = deviceStore // Store device in map
 
@@ -54,11 +60,14 @@ func main() {
             })
 
             // Connect with error handling
+            fmt.Printf("Attempting to connect for %s...\n", phoneNumber)
             err = client.Connect()
             if err != nil {
+                fmt.Printf("Failed to connect for %s: %v\n", phoneNumber, err)
                 fmt.Fprintf(w, "Error connecting to WhatsApp: %v", err)
                 return
             }
+            fmt.Printf("Connected successfully for %s\n", phoneNumber)
         }
 
         if client.Store.ID == nil {
@@ -67,15 +76,19 @@ func main() {
                 return
             }
             if !client.IsConnected() {
+                fmt.Printf("Reconnecting for %s...\n", phoneNumber)
                 err := client.Connect()
                 if err != nil {
+                    fmt.Printf("Failed to reconnect for %s: %v\n", phoneNumber, err)
                     fmt.Fprintf(w, "Error connecting: %v", err)
                     return
                 }
                 time.Sleep(2 * time.Second)
             }
+            fmt.Printf("Generating pair code for %s...\n", phoneNumber)
             pairCode, err := client.PairPhone(phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Windows)")
             if err != nil {
+                fmt.Printf("Error generating pair code for %s: %v\n", phoneNumber, err)
                 fmt.Fprintf(w, "Error generating pair code: %v", err)
                 return
             }
@@ -90,6 +103,21 @@ func main() {
         fmt.Fprintf(w, "OK")
     })
 
+    // Debug endpoint to check client status
+    http.HandleFunc("/debug", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, "Active Clients:\n")
+        for phone, client := range clients {
+            status := "Not Connected"
+            if client.IsConnected() {
+                status = "Connected"
+            }
+            fmt.Fprintf(w, "Phone: %s, Status: %s, ID: %v\n", phone, status, client.Store.ID)
+        }
+    })
+
     fmt.Println("Starting web server on :10000...")
-    http.ListenAndServe(":10000", nil)
+    err = http.ListenAndServe(":10000", nil)
+    if err != nil {
+        fmt.Printf("Error starting server: %v\n", err)
+    }
 }
