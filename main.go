@@ -6,6 +6,7 @@ import (
     "time"
     "go.mau.fi/whatsmeow"
     "go.mau.fi/whatsmeow/store/sqlstore"
+    "go.mau.fi/whatsmeow/store"
     _ "github.com/mattn/go-sqlite3"
 )
 
@@ -28,14 +29,17 @@ func main() {
         // Check if client for this phone number already exists
         client, exists := clients[phoneNumber]
         if !exists {
-            // Create new device store for this phone number
-            deviceStore, err := db.GetFirstDevice()
+            // Create a new device for this phone number
+            deviceStore := store.Device{}
+            client = whatsmeow.NewClient(&deviceStore, nil)
+            clients[phoneNumber] = client
+
+            // Save the device to the database
+            err = db.PutDevice(&deviceStore)
             if err != nil {
-                fmt.Fprintf(w, "Error creating device store: %v", err)
+                fmt.Fprintf(w, "Error saving device to database: %v", err)
                 return
             }
-            client = whatsmeow.NewClient(deviceStore, nil)
-            clients[phoneNumber] = client
 
             // Event logging
             client.AddEventHandler(func(evt interface{}) {
