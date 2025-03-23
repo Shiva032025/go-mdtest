@@ -12,6 +12,7 @@ import (
 
 var lastPairTime time.Time
 var clients = make(map[string]*whatsmeow.Client) // Map to store clients for each phone number
+var devices = make(map[string]*store.Device)     // Map to store devices for each phone number
 
 func main() {
     db, err := sqlstore.New("sqlite3", "file:mdtest.db?_foreign_keys=on", nil)
@@ -30,20 +31,21 @@ func main() {
         client, exists := clients[phoneNumber]
         if !exists {
             // Create a new device for this phone number
-            deviceStore := store.Device{}
-            client = whatsmeow.NewClient(&deviceStore, nil)
+            deviceStore := &store.Device{}
+            client = whatsmeow.NewClient(deviceStore, nil)
             clients[phoneNumber] = client
-
-            // Save the device to the database
-            err = db.PutDevice(&deviceStore)
-            if err != nil {
-                fmt.Fprintf(w, "Error saving device to database: %v", err)
-                return
-            }
+            devices[phoneNumber] = deviceStore // Store device in map
 
             // Event logging
             client.AddEventHandler(func(evt interface{}) {
                 fmt.Printf("Event for %s: %v\n", phoneNumber, evt)
+                // Save device to database after pairing (when JID is set)
+                if client.Store.ID != nil {
+                    err := db.PutDevice(deviceStore)
+                    if err != nil {
+                        fmt.Printf("Error saving device to database after pairing: %v\n", err)
+                    }
+                }
             })
 
             err = client.Connect()
