@@ -7,6 +7,7 @@ import (
     "go.mau.fi/whatsmeow"
     "go.mau.fi/whatsmeow/store/sqlstore"
     "go.mau.fi/whatsmeow/store"
+    waLog "go.mau.fi/whatsmeow/util/log"
     _ "github.com/mattn/go-sqlite3"
 )
 
@@ -15,7 +16,8 @@ var clients = make(map[string]*whatsmeow.Client) // Map to store clients for eac
 var devices = make(map[string]*store.Device)     // Map to store devices for each phone number
 
 func main() {
-    db, err := sqlstore.New("sqlite3", "file:mdtest.db?_foreign_keys=on", nil)
+    // Use in-memory database to avoid file system issues on Render
+    db, err := sqlstore.New("sqlite3", ":memory:", nil)
     if err != nil {
         panic(err)
     }
@@ -32,6 +34,9 @@ func main() {
         if !exists {
             // Create a new device for this phone number
             deviceStore := &store.Device{}
+            // Use whatsmeow's built-in logger
+            deviceStore.Log = waLog.Stdout("Device", "INFO", true)
+
             client = whatsmeow.NewClient(deviceStore, nil)
             clients[phoneNumber] = client
             devices[phoneNumber] = deviceStore // Store device in map
@@ -48,9 +53,10 @@ func main() {
                 }
             })
 
+            // Connect with error handling
             err = client.Connect()
             if err != nil {
-                fmt.Fprintf(w, "Error connecting: %v", err)
+                fmt.Fprintf(w, "Error connecting to WhatsApp: %v", err)
                 return
             }
         }
